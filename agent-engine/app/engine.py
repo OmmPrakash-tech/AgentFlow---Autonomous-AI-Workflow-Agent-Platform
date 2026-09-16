@@ -137,6 +137,19 @@ class Engine:
         if not s["tool_results"] and "list_files" in task["tools"]:
             # Ground file-name choices before the small local model requests reads.
             self.execute(s, task, ToolRequest(name="list_files"))
+        if task["agent"] == "REPOSITORY" and "read_file" in task["tools"]:
+            inventory = next((r["output"].get("files", []) for r in reversed(s["tool_results"])
+                              if r["tool"] == "list_files" and r["status"] == "SUCCEEDED"), [])
+            already_read = {r["output"].get("path") for r in s["tool_results"]
+                            if r["task_id"] == task["id"] and r["tool"] == "read_file" and r["status"] == "SUCCEEDED"}
+            objective = (s["objective"] + " " + task["objective"]).lower()
+            named = [path for path in inventory if path.lower() in objective]
+            # Bounded inspection context is gathered through the same audited gateway.
+            # Prefer files explicitly named by the user; otherwise two shallow files.
+            candidates = named or sorted(inventory, key=lambda path: (path.count("/"), path.lower()))[:2]
+            for path in candidates[:2]:
+                if path not in already_read:
+                    self.execute(s, task, ToolRequest(name="read_file", path=path))
         pending = s.get("pending")
         if pending:
             if pending["decision"] == "PENDING":

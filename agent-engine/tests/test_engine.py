@@ -189,3 +189,18 @@ def test_analysis_can_reuse_actual_shared_file_evidence(setup, with_evidence):
     engine = Engine(store, gateway, Scripted([Evaluation(accepted=True, summary="Review")]))
     result = engine.evaluate(state)
     assert (result["plan"][0]["status"] == "COMPLETED") is with_evidence
+
+
+def test_repository_grounds_named_file_before_model_analysis(setup):
+    _, state, store, gateway, _ = setup
+    state["objective"] = "Read app.py and describe it without executing tests"
+    task = Task(id="inspect", agent="REPOSITORY", objective=state["objective"], tools=["list_files", "read_file"], success_criteria="Describe actual source")
+    provider = Scripted([Plan(tasks=[task]), AgentResponse(summary="The source assigns answer = 41", complete=True),
+                         Evaluation(accepted=True, summary="Read verified"), Evaluation(accepted=True, summary="Verified")])
+    store.save(state)
+    Engine(store, gateway, provider).run(state["run_id"])
+    result = store.get(state["run_id"])
+    assert result["status"] == "COMPLETED"
+    reads = [r for r in result["tool_results"] if r["tool"] == "read_file"]
+    assert len(reads) == 1 and reads[0]["output"]["path"] == "app.py"
+    assert "answer = 41" in reads[0]["output"]["content"]
