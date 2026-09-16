@@ -176,3 +176,16 @@ def test_incomplete_agent_cannot_be_rubber_stamped(setup):
     evaluated=engine.evaluate(state)
     assert evaluated['plan'][0]['status']=='FAILED'
     assert evaluated['needs_replan']
+
+
+@pytest.mark.parametrize("with_evidence", [False, True])
+def test_analysis_can_reuse_actual_shared_file_evidence(setup, with_evidence):
+    _, state, store, gateway, repository_task = setup
+    if with_evidence:
+        state["tool_results"].append(gateway.execute(state, repository_task, ToolRequest(name="read_file", path="app.py")))
+    task = Task(id="analysis", agent="SECURITY", objective="Review actual code", tools=[], success_criteria="Evidence-backed review")
+    state["plan"] = [dict(task.model_dump(), status="RUNNING", summary="Review existing evidence")]
+    store.save(state)
+    engine = Engine(store, gateway, Scripted([Evaluation(accepted=True, summary="Review")]))
+    result = engine.evaluate(state)
+    assert (result["plan"][0]["status"] == "COMPLETED") is with_evidence

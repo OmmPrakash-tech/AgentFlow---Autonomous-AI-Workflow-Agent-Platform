@@ -199,12 +199,13 @@ class Engine:
         failed_tests = any(r["tool"]=="run_tests" and r["status"]=="FAILED" for r in relevant)
         failed_tools = any(r["status"] == "FAILED" for r in relevant)
         accepted = evaluation.accepted and not failed_tests and not failed_tools
-        if task["agent"] in {"REPOSITORY", "SECURITY", "CODE_ANALYST", "TESTER"} and not relevant:
+        if task["agent"] in {"REPOSITORY", "TESTER"} and not relevant:
             accepted = False
         observed = {r["tool"] for r in relevant if r["status"] == "SUCCEEDED"}
         if task["agent"] == "REPOSITORY" and "read_file" in task["tools"] and "read_file" not in observed:
             accepted = False
-        if task["agent"] in {"SECURITY", "CODE_ANALYST"} and not observed.intersection({"read_file", "security_scan", "search_code", "inspect_dependencies"}):
+        shared_observed = {r["tool"] for r in s["tool_results"][-8:] if r["status"] == "SUCCEEDED"}
+        if task["agent"] in {"SECURITY", "CODE_ANALYST"} and not shared_observed.intersection({"read_file", "security_scan", "search_code", "inspect_dependencies"}):
             accepted = False
         if task["agent"] == "TESTER" and "run_tests" not in observed:
             accepted = False

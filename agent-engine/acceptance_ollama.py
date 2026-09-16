@@ -24,3 +24,5 @@ Engine(store,Gateway(root),OllamaProvider()).run(request.run_id)
 result=store.get(request.run_id)
 (root/"result.json").write_text(json.dumps(result,indent=2),encoding="utf-8")
 print(json.dumps({k:result.get(k) for k in ["status","llm_calls","tool_call_count","retry_count","errors","verification"]},indent=2),flush=True)
+
+raise SystemExit(0 if result["status"] == "COMPLETED" else 1)
