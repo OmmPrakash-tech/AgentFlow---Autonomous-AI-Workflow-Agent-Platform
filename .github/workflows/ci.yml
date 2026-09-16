@@ -79,10 +79,28 @@ jobs:
     needs: platform
     steps:
       - uses: actions/checkout@v4
-      - name: Build application images
+      - name: Build and smoke-test application images
         env:
           DATABASE_PASSWORD: ci-only-disposable-password
           JWT_SECRET: ci-only-jwt-secret-01234567890123456789
           ENGINE_SECRET: ci-only-engine-secret-01234567890123456789
           ENGINE_DATABASE_URL: postgresql+psycopg://agentflow:ci-only-disposable-password@postgres:5432/agentflow
-        run: docker compose build
+        run: |
+          docker compose build
+          docker compose up -d --wait --wait-timeout 180
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent http://localhost:8080/actuator/health > /tmp/health.json; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://localhost:8080/actuator/health
+          curl --fail --silent http://localhost:3000/ > /tmp/frontend.html
+          curl --fail --silent -H 'Content-Type: application/json' -d '{"email":"compose@example.test","password":"compose-only-test-password"}' http://localhost:3000/api/auth/register > /tmp/session.json
+          python3 -c 'import json; s=json.load(open("/tmp/session.json")); assert s["user"]["role"] == "DEVELOPER"; assert s["accessToken"]'
+      - name: Container diagnostics
+        if: failure()
+        run: docker compose logs --tail=100
+        env:
+          DATABASE_PASSWORD: ci-only-disposable-password
+          JWT_SECRET: ci-only-jwt-secret-01234567890123456789
+          ENGINE_SECRET: ci-only-engine-secret-01234567890123456789
+          ENGINE_DATABASE_URL: postgresql+psycopg://agentflow:ci-only-disposable-password@postgres:5432/agentflow
