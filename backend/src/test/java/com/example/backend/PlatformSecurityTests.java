@@ -62,4 +62,13 @@ class PlatformSecurityTests {
  @Test void oversizedRequestIsRejectedBeforeParsing() throws Exception {
   mvc.perform(post("/api/auth/register").contentType("application/json").content("x".repeat(131073))).andExpect(status().isPayloadTooLarge());
  }
+ @Test void malformedRunIdIsClientError() throws Exception {
+  mvc.perform(get("/api/runs/not-a-uuid").header("Authorization","Bearer "+register()))
+   .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_INPUT"));
+ }
+ @Test void nonexistentWorkspaceIsClientErrorWithoutPathLeak() throws Exception {
+  mvc.perform(post("/api/projects").header("Authorization","Bearer "+register()).contentType("application/json")
+   .content("{\"name\":\"Missing\",\"workspacePath\":\"missing-"+UUID.randomUUID()+"\"}"))
+   .andExpect(status().isBadRequest()).andExpect(jsonPath("$.message").value("Workspace does not exist or is not accessible"));
+ }
 }

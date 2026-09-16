@@ -1,5 +1,7 @@
 # AGENTFLOW IMPLEMENTATION REPORT
 
+The original delivery snapshot below is historical. See [final verification](final-verification.md) for subsequent fixes, current test results, and the feature verification matrix. Roadmap items remain unfinished.
+
 Local Path: `D:\projects\AgentFlow`
 
 GitHub Repository: https://github.com/OmmPrakash-tech/AgentFlow---Autonomous-AI-Workflow-Agent-Platform

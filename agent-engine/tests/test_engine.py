@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 from app.schemas import Plan, Task, ToolRequest, Start, AgentResponse, Evaluation
 from app.tools import Gateway, PolicyError
+from app.tools import redact
 from app.store import Store
 from app.engine import Engine, initial
 
@@ -204,3 +205,39 @@ def test_repository_grounds_named_file_before_model_analysis(setup):
     reads = [r for r in result["tool_results"] if r["tool"] == "read_file"]
     assert len(reads) == 1 and reads[0]["output"]["path"] == "app.py"
     assert "answer = 41" in reads[0]["output"]["content"]
+
+@pytest.mark.parametrize("value", [
+    '{"password": "fixture-secret-value"}',
+    "api_key = 'fixture-secret-value with spaces'",
+    'Authorization: Bearer fixture-secret-value',
+    'postgresql://user:fixture-secret-value@localhost/db',
+])
+def test_structured_secrets_are_redacted(value):
+    assert "fixture-secret-value" not in redact(value)
+
+def test_sensitive_paths_are_case_insensitive(setup):
+    workspace, state, _, gateway, task = setup
+    (workspace/".ENV.properties").write_text("DATABASE_PASSWORD=fixture-secret")
+    with pytest.raises(PolicyError, match="SENSITIVE_PATH"):
+        gateway.execute(state, task, ToolRequest(name="read_file", path=".ENV.properties"))
+
+def test_empty_diff_allowlist_never_invokes_unrestricted_git(setup, monkeypatch):
+    _, state, _, gateway, task = setup
+    state["tools"].append("inspect_git_diff")
+    task["tools"].append("inspect_git_diff")
+    state["agents"][0]["configuration"]["available_tools"].append("inspect_git_diff")
+    monkeypatch.setattr(gateway, "files", lambda workspace: [])
+    def forbidden(*args, **kwargs):
+        pytest.fail("An empty path list would make git diff include excluded files")
+    monkeypatch.setattr("app.tools.subprocess.run", forbidden)
+    result = gateway.execute(state, task, ToolRequest(name="inspect_git_diff"))
+    assert result["output"]["diff"] == ""
+
+def test_failed_tool_does_not_disclose_host_path(setup):
+    workspace, state, store, gateway, task = setup
+    state["plan"] = [dict(task, status="RUNNING", summary="", attempts=0)]
+    store.save(state)
+    Engine(store, gateway, None).execute(state, task, ToolRequest(name="read_file", path="missing.py"))
+    error = state["tool_results"][-1]["output"]["error"]
+    assert state["tool_results"][-1]["status"] == "FAILED"
+    assert str(workspace) not in error.replace("\\\\", "\\")

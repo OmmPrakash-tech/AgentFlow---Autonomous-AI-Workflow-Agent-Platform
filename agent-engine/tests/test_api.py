@@ -7,6 +7,7 @@ from app.engine import initial, Engine
 from app.schemas import Start, Decision, ToolRequest
 from app.store import Store
 from app.tools import Gateway
+from fastapi import HTTPException
 
 @pytest.fixture
 def api_client(tmp_path, monkeypatch):
@@ -61,3 +62,23 @@ def test_approval_timeout_and_single_decision(api_client):
     response=client.get(f"/internal/agent-runs/{state['run_id']}/state",headers=headers)
     assert response.json()["status"]=="FAILED"
     assert "APPROVAL_TIMEOUT" in response.json()["errors"]
+
+def test_capacity_rejection_keeps_approval_retryable(api_client, monkeypatch):
+    client, store, headers = api_client
+    state = initial(Start(**body()))
+    state["status"] = "WAITING_APPROVAL"
+    state["pending"] = {"id":"capacity-approval", "decision":"PENDING", "expires_at":time.time()+100}
+    state["approvals"] = [state["pending"].copy()]
+    store.create(state)
+    def busy(run_id):
+        raise HTTPException(429, "Engine capacity reached")
+    monkeypatch.setattr(main, "submit", busy)
+    url = f"/internal/agent-runs/{state['run_id']}/resume"
+    data = {"approval_id":"capacity-approval", "approved":True}
+    assert client.post(url, headers=headers, json=data).status_code == 429
+    saved = store.get(state["run_id"])
+    assert saved["status"] == "WAITING_APPROVAL"
+    assert saved["pending"]["decision"] == "PENDING"
+    assert saved["approvals"][0]["decision"] == "PENDING"
+    monkeypatch.setattr(main, "submit", lambda run_id: None)
+    assert client.post(url, headers=headers, json=data).status_code == 200

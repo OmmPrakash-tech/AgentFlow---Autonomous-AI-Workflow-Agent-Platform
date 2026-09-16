@@ -72,6 +72,7 @@ button:disabled {
   min-height: 100vh;
 }
 aside {
+  overflow-y: auto;
   position: fixed;
   inset: 0 auto 0 0;
   width: 238px;
@@ -946,8 +947,11 @@ pre {
   }
   .workspace-label,
   .nav-label,
-  .sidebar-bottom {
+  .model-label {
     display: none;
+  }
+  .sidebar-bottom {
+    margin-top: 12px;
   }
   nav {
     display: flex;

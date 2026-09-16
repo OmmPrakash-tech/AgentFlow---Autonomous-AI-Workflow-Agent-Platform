@@ -2,6 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import hmac
+import copy
 import logging
 import os
 import threading
@@ -83,7 +84,13 @@ def submit(run_id):
             with active_lock:
                 active.discard(run_id)
             slots.release()
-    pool.submit(worker)
+    try:
+        pool.submit(worker)
+    except RuntimeError:
+        with active_lock:
+            active.discard(run_id)
+        slots.release()
+        raise HTTPException(503, "Engine workers unavailable")
 
 @app.get("/health")
 def health():
@@ -133,11 +140,17 @@ def resume(run_id: str, decision: Decision):
             raise HTTPException(409,"No matching pending approval")
         if run_id in active:
             raise HTTPException(409,"Run is still pausing")
+        previous = copy.deepcopy(s)
         pending["decision"]="APPROVED" if decision.approved else "REJECTED"
         for a in s["approvals"]:
             if a["id"]==pending["id"]:
                 a["decision"]=pending["decision"]
         s["status"]="RUNNING"
         store.save(s)
-        submit(run_id)
+        try:
+            submit(run_id)
+        except HTTPException:
+            # Admission failure must not consume the user's decision or strand a run.
+            store.save(previous)
+            raise
         return s

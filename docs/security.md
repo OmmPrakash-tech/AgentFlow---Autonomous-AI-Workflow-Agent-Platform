@@ -39,7 +39,9 @@ Approvals cannot authorize a different request, changed file, different task, or
 ## Untrusted content
 Repository text, documentation, comments, model findings, and tool output are data. System prompts separate them from the objective. Independent server policies enforce permissions, paths, risk, and command restrictions even if a model follows an injected instruction. This is defense in depth, not a claim that prompt injection is solved.
 
-Secret-like assignments are redacted, sensitive file names are excluded, and no model reasoning field is recorded. Redaction is heuristic; do not place credentials inside the approved workspace.
+Secret-like assignments (including quoted JSON values), bearer tokens and credential-bearing URLs are redacted. Sensitive path checks are case-insensitive, and an empty Git diff allowlist cannot expand to excluded files. Unexpected tool errors expose a category instead of the host path or raw exception. No model reasoning field is recorded. Redaction remains heuristic; do not place credentials inside the approved workspace.
+
+If worker admission fails during an approval decision, the pending request is preserved for retry. A rejected admission does not silently consume an approval or leave a run falsely marked as executing.
 
 ## Deployment
 Redis rate limits fail closed when Redis is unavailable. HTTP request size limits apply at Nginx and application boundaries. Browser sessions use sessionStorage bearer tokens; TLS and CSP are required for non-local deployment, and XSS remains relevant to bearer storage.

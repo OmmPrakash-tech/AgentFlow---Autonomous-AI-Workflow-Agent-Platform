@@ -18,9 +18,13 @@ class ApiErrors {
  ResponseEntity<?> known(ResponseStatusException e,HttpServletRequest r) {
   return ResponseEntity.status(e.getStatusCode()).body(body(e.getStatusCode().value(),"REQUEST_REJECTED",e.getReason()==null?"Request rejected":e.getReason(),r.getRequestURI()));
  }
- @ExceptionHandler({MethodArgumentNotValidException.class,IllegalArgumentException.class,org.springframework.http.converter.HttpMessageNotReadableException.class})
+ @ExceptionHandler({MethodArgumentNotValidException.class,IllegalArgumentException.class,org.springframework.http.converter.HttpMessageNotReadableException.class,org.springframework.web.method.annotation.MethodArgumentTypeMismatchException.class})
  ResponseEntity<?> invalid(Exception e,HttpServletRequest r) {
   return ResponseEntity.badRequest().body(body(400,"INVALID_INPUT","Input does not match the API schema",r.getRequestURI()));
+ }
+ @ExceptionHandler({java.nio.file.NoSuchFileException.class,java.nio.file.AccessDeniedException.class})
+ ResponseEntity<?> unavailableWorkspace(Exception e,HttpServletRequest r) {
+  return ResponseEntity.badRequest().body(body(400,"INVALID_INPUT","Workspace does not exist or is not accessible",r.getRequestURI()));
  }
  @ExceptionHandler(DataIntegrityViolationException.class)
  ResponseEntity<?> conflict(Exception e,HttpServletRequest r) { return ResponseEntity.status(409).body(body(409,"CONFLICT","Resource already exists or is in use",r.getRequestURI())); }

@@ -37,7 +37,7 @@ def test_failed_test_debug_edit_approval_and_passing_retest(tmp_path):
     responses=[
         initial_plan,ask_test,done,no,replan,
         AgentResponse(summary="Inspect bug",tool_requests=[ToolRequest(name="read_file",path="calculator.py")]),done,yes,
-        AgentResponse(summary="Correct addition",tool_requests=[ToolRequest(name="modify_file",path="calculator.py",content=fixed,expected_sha256=hashlib.sha256(source.encode()).hexdigest())]),done,yes,
+        AgentResponse(summary="Correct addition",tool_requests=[ToolRequest(name="modify_file",path="calculator.py",content=fixed,expected_sha256=hashlib.sha256((workspace/"calculator.py").read_bytes()).hexdigest())]),done,yes,
         ask_test,done,yes,yes
     ]
     request=Start(run_id=str(uuid.uuid4()),project_id=str(uuid.uuid4()),objective="Repair addition",workspace="sample",mode="EDIT_MODE",tools=tools,

@@ -17,7 +17,9 @@ EXTENSIONS = {".py", ".java", ".ts", ".tsx", ".js", ".json", ".xml", ".propertie
 TOOLS = {"list_files", "read_file", "search_code", "inspect_project", "inspect_dependencies", "security_scan", "inspect_git_diff", "modify_file", "run_tests"}
 
 def redact(text):
-    text = re.sub(r"(?im)((?:password|secret|token|api[_-]?key)\s*[=:]\s*)[^\s,;]+", r"\1[REDACTED]", text)
+    text = re.sub(r'''(?im)((?:[\w.-]*(?:password|secret|token|api[_-]?key))["']?\s*[=:]\s*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s,;}\]]+)''', r"\1[REDACTED]", text)
+    text = re.sub(r'''(?i)(\bBearer\s+)[^\s"',;]+''', r"\1[REDACTED]", text)
+    text = re.sub(r"(?i)([a-z][\w+.-]*://[^/\s:@]+:)[^@\s]+@", r"\1[REDACTED]@", text)
     return re.sub(r"\b(?:ghp_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,})\b", "[REDACTED]", text)
 
 class PolicyError(Exception):
@@ -40,7 +42,7 @@ class Gateway:
         rel = Path(name)
         if rel.is_absolute() or ":" in name or ".." in rel.parts:
             raise PolicyError("PATH_TRAVERSAL")
-        if any(p in EXCLUDED or p in SENSITIVE or p.startswith(".env.") and p != ".env.example" for p in rel.parts):
+        if any(p in EXCLUDED or p in SENSITIVE or p.startswith(".env.") and p != ".env.example" for p in (part.casefold() for part in rel.parts)):
             raise PolicyError("SENSITIVE_PATH")
         path = (workspace / rel).resolve(strict=True)
         if not path.is_relative_to(workspace):
@@ -58,7 +60,7 @@ class Gateway:
     def files(self, workspace):
         result = []
         for parent, dirs, files in os.walk(workspace, followlinks=False):
-            dirs[:] = sorted(d for d in dirs if d not in EXCLUDED and not (Path(parent)/d).is_symlink() and not (hasattr(Path(parent)/d,"is_junction") and (Path(parent)/d).is_junction()))
+            dirs[:] = sorted(d for d in dirs if d.casefold() not in EXCLUDED and not (Path(parent)/d).is_symlink() and not (hasattr(Path(parent)/d,"is_junction") and (Path(parent)/d).is_junction()))
             for name in sorted(files):
                 rel = (Path(parent)/name).relative_to(workspace).as_posix()
                 try:
@@ -130,9 +132,14 @@ class Gateway:
             value = {"matches": rows, "note": "Heuristic evidence only; not a vulnerability verdict or dependency CVE scan"}
         elif request.name == "inspect_git_diff":
             # Git's external diff and textconv are disabled.
-            result = subprocess.run(["git","-c","core.fsmonitor=false","--no-pager","diff","--no-ext-diff","--no-textconv","--",*self.files(workspace)],cwd=workspace,
-                    capture_output=True,timeout=15,env={"PATH":os.environ.get("PATH",""),"SYSTEMROOT":os.environ.get("SYSTEMROOT",""),"GIT_CONFIG_NOSYSTEM":"1","GIT_CONFIG_GLOBAL":os.devnull})
-            value = {"exit_code":result.returncode,"diff":redact(result.stdout.decode(errors="replace")[:20000])}
+            allowed_files = self.files(workspace)
+            if not allowed_files:
+                # `git diff --` without paths would include excluded files.
+                value = {"exit_code":0,"diff":""}
+            else:
+                result = subprocess.run(["git","-c","core.fsmonitor=false","--no-pager","diff","--no-ext-diff","--no-textconv","--",*allowed_files],cwd=workspace,
+                        capture_output=True,timeout=15,env={"PATH":os.environ.get("PATH",""),"SYSTEMROOT":os.environ.get("SYSTEMROOT",""),"GIT_CONFIG_NOSYSTEM":"1","GIT_CONFIG_GLOBAL":os.devnull})
+                value = {"exit_code":result.returncode,"diff":redact(result.stdout.decode(errors="replace")[:20000])}
         elif request.name == "modify_file":
             path = self.path(workspace, request.path, file=True)
             before = path.read_bytes()

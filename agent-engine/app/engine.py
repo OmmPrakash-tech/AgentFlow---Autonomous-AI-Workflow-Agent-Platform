@@ -10,6 +10,10 @@ from .tools import PolicyError, redact
 log = logging.getLogger("agentflow.engine")
 MAX_CALLS, MAX_RETRIES, MAX_SECONDS = 36, 2, 1800
 
+def error_detail(error):
+    # Policy errors contain controlled codes; OS/database errors can contain paths or credentials.
+    return redact(str(error))[:300] if isinstance(error, PolicyError) else type(error).__name__ + ": operation failed"
+
 class Engine:
     def __init__(self, store, gateway, provider):
         self.store, self.gateway, self.provider = store, gateway, provider
@@ -123,9 +127,9 @@ class Engine:
             s["tool_results"].append(result)
             self.event(s, "TOOL_"+result["status"], request.name)
         except Exception as e:
-            result = {"id":str(s["tool_call_count"]), "tool":request.name,"task_id":task["id"],"status":"FAILED","output":{"error":redact(str(e))[:300]}}
+            result = {"id":str(s["tool_call_count"]), "tool":request.name,"task_id":task["id"],"status":"FAILED","output":{"error":error_detail(e)}}
             s["tool_results"].append(result)
-            s["errors"].append(request.name+": "+redact(str(e))[:300])
+            s["errors"].append(request.name+": "+error_detail(e))
             self.event(s, "TOOL_FAILED", request.name)
 
     def act(self, s):
@@ -288,7 +292,7 @@ class Engine:
             if latest["status"] == "CANCELLED":
                 return
             latest["status"] = "FAILED"
-            latest["errors"].append(type(e).__name__+": "+redact(str(e))[:300])
+            latest["errors"].append(error_detail(e))
             latest["verification"] = {"accepted":False,"summary":"Execution stopped: "+type(e).__name__,"edits_verified":False}
             self.finalize(latest)
 

@@ -245,12 +245,14 @@ export default function App() {
         </div>
         <div className="nav-label">WORKSPACE</div>
         <nav>
-          {nav.map(([label, path, Icon]) => (
-            <NavLink key={path} to={path} end={path === "/"}>
-              <Icon size={18} />
-              {label}
-            </NavLink>
-          ))}
+          {nav
+            .filter(([, path]) => path !== "/activity" || user.role === "ADMIN")
+            .map(([label, path, Icon]) => (
+              <NavLink key={path} to={path} end={path === "/"}>
+                <Icon size={18} />
+                {label}
+              </NavLink>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="model-label">
@@ -282,10 +284,10 @@ export default function App() {
             <Security onChanged={logout} />
           ) : (
             <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/projects" element={<Projects />} />
-              <Route path="/runs" element={<Runs />} />
-              <Route path="/runs/:id" element={<RunDetail />} />
+              <Route path="/" element={<Dashboard user={user} />} />
+              <Route path="/projects" element={<Projects user={user} />} />
+              <Route path="/runs" element={<Runs user={user} />} />
+              <Route path="/runs/:id" element={<RunDetail user={user} />} />
               <Route path="/approvals" element={<Approvals />} />
               <Route path="/:registry" element={<Registry user={user} />} />
               <Route
@@ -305,7 +307,7 @@ export default function App() {
   );
 }
 
-function Dashboard() {
+function Dashboard({ user }: { user: User }) {
   const runs = useList("/runs"),
     agents = useList("/agents"),
     workflows = useList("/workflows");
@@ -318,7 +320,7 @@ function Dashboard() {
         action={
           <Link className="primary" to="/runs">
             <Plus size={17} />
-            New agent run
+            {user.role === "VIEWER" ? "View agent runs" : "New agent run"}
           </Link>
         }
       >
@@ -493,7 +495,8 @@ function RunTable({ rows }: { rows: any[] }) {
     <Empty title="No executions yet" />
   );
 }
-function Projects() {
+function Projects({ user }: { user: User }) {
+  const canWrite = ["ADMIN", "DEVELOPER"].includes(user.role);
   const q = useList("/projects"),
     client = useQueryClient();
   const [error, setError] = useState(""),
@@ -534,56 +537,67 @@ function Projects() {
                 <p>{p.description || "Local repository"}</p>
                 <code>{p.workspacePath}</code>
                 <Link to="/runs">
-                  Start an analysis <ArrowUpRight size={15} />
+                  {user.role === "VIEWER"
+                    ? "View execution history"
+                    : "Start an analysis"}{" "}
+                  <ArrowUpRight size={15} />
                 </Link>
               </div>
             ))
           ) : (
-            <Empty title="Register your first project" />
+            <Empty
+              title={
+                canWrite
+                  ? "Register your first project"
+                  : "No projects available"
+              }
+            />
           )}
         </section>
-        <section className="panel padded">
-          <h2>Register workspace</h2>
-          <form onSubmit={save}>
-            <label>
-              Project name
-              <input
-                name="name"
-                required
-                maxLength={120}
-                placeholder="Payments service"
-              />
-            </label>
-            <label>
-              Relative workspace path
-              <input
-                name="workspacePath"
-                required
-                placeholder="payments-service"
-              />
-            </label>
-            <p className="muted">
-              The folder must already exist under WORKSPACE_ROOT.
-            </p>
-            <label>
-              Description
-              <textarea
-                name="description"
-                maxLength={2000}
-                placeholder="What does this project do?"
-              />
-            </label>
-            <button className="primary" disabled={busy}>
-              <Plus size={16} />
-              Register project
-            </button>
-          </form>
-        </section>
+        {canWrite && (
+          <section className="panel padded">
+            <h2>Register workspace</h2>
+            <form onSubmit={save}>
+              <label>
+                Project name
+                <input
+                  name="name"
+                  required
+                  maxLength={120}
+                  placeholder="Payments service"
+                />
+              </label>
+              <label>
+                Relative workspace path
+                <input
+                  name="workspacePath"
+                  required
+                  placeholder="payments-service"
+                />
+              </label>
+              <p className="muted">
+                The folder must already exist under WORKSPACE_ROOT.
+              </p>
+              <label>
+                Description
+                <textarea
+                  name="description"
+                  maxLength={2000}
+                  placeholder="What does this project do?"
+                />
+              </label>
+              <button className="primary" disabled={busy}>
+                <Plus size={16} />
+                Register project
+              </button>
+            </form>
+          </section>
+        )}
       </div>
     </>
   );
 }
-function Runs() {
+function Runs({ user }: { user: User }) {
   const [page, setPage] = useState(0);
   const q = useList("/runs?page=" + page),
     projects = useList("/projects"),
@@ -615,56 +629,62 @@ function Runs() {
         Define the outcome. Follow every decision and tool result.
       </Heading>
       <ErrorBox error={error || q.error} />
-      <section className="panel padded">
-        <form onSubmit={start}>
-          <div className="form-grid">
-            <label>
-              Project
-              <select name="projectId" required>
-                <option value="">Select a project</option>
-                {projects.data?.content?.map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Workflow
-              <select name="workflowId">
-                <option value="">Autonomous planning</option>
-                {workflows.data
-                  ?.filter((w: any) => w.enabled)
-                  .map((w: any) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
+      {user.role !== "VIEWER" && (
+        <section className="panel padded">
+          <form onSubmit={start}>
+            <div className="form-grid">
+              <label>
+                Project
+                <select name="projectId" required>
+                  <option value="">Select a project</option>
+                  {projects.data?.content?.map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
                     </option>
                   ))}
-              </select>
-            </label>
+                </select>
+              </label>
+              <label>
+                Workflow
+                <select name="workflowId">
+                  <option value="">Autonomous planning</option>
+                  {workflows.data
+                    ?.filter((w: any) => w.enabled)
+                    .map((w: any) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <label>
+                Permissions
+                <select name="mode">
+                  <option value="READ_ONLY">Read only</option>
+                  {["ADMIN", "DEVELOPER"].includes(user.role) && (
+                    <option value="EDIT_MODE">
+                      Edit mode · approval required
+                    </option>
+                  )}
+                </select>
+              </label>
+            </div>
             <label>
-              Permissions
-              <select name="mode">
-                <option value="READ_ONLY">Read only</option>
-                <option value="EDIT_MODE">Edit mode · approval required</option>
-              </select>
+              Objective
+              <textarea
+                name="objective"
+                required
+                maxLength={4000}
+                placeholder="Analyze this repository for production readiness. Inspect architecture, security and dependencies. Reference actual files."
+              />
             </label>
-          </div>
-          <label>
-            Objective
-            <textarea
-              name="objective"
-              required
-              maxLength={4000}
-              placeholder="Analyze this repository for production readiness. Inspect architecture, security and dependencies. Reference actual files."
-            />
-          </label>
-          <button className="primary" disabled={busy}>
-            <Play size={16} />
-            {busy ? "Starting…" : "Launch agent run"}
-          </button>
-        </form>
-      </section>
+            <button className="primary" disabled={busy}>
+              <Play size={16} />
+              {busy ? "Starting…" : "Launch agent run"}
+            </button>
+          </form>
+        </section>
+      )}
       <section className="panel">
         <div className="section-head">
           <h2>Execution history</h2>
@@ -675,7 +695,7 @@ function Runs() {
     </>
   );
 }
-function RunDetail() {
+function RunDetail({ user }: { user: User }) {
   const { id } = useParams();
   const client = useQueryClient();
   const q = useQuery({
@@ -738,7 +758,7 @@ function RunDetail() {
           <FileText size={16} />
           Export Markdown
         </button>
-        {!terminal.has(r.status) && (
+        {!terminal.has(r.status) && user.role !== "VIEWER" && (
           <button onClick={() => action("/cancel", {})}>
             <X size={16} />
             Cancel execution
@@ -758,41 +778,49 @@ function RunDetail() {
           </div>
         ))}
       </div>
-      {s.pending && s.pending.decision === "PENDING" && (
-        <section className="panel padded approval">
-          <div className="eyebrow">HUMAN DECISION REQUIRED</div>
-          <h2>
-            {s.pending.request.name} · {s.pending.request.path}
-          </h2>
-          <p>{s.pending.reason}</p>
-          <Badge value={s.pending.risk} />
-          <pre>{s.pending.diff}</pre>
-          <div className="run-actions">
-            <button
-              className="primary"
-              onClick={() =>
-                action("/approval", {
-                  approvalId: s.pending.id,
-                  approved: true,
-                })
-              }
-            >
-              <Check size={16} />
-              Approve exact action
-            </button>
-            <button
-              onClick={() =>
-                action("/approval", {
-                  approvalId: s.pending.id,
-                  approved: false,
-                })
-              }
-            >
-              Reject
-            </button>
-          </div>
-        </section>
-      )}
+      {s.pending &&
+        s.pending.decision === "PENDING" &&
+        !terminal.has(r.status) && (
+          <section className="panel padded approval">
+            <div className="eyebrow">HUMAN DECISION REQUIRED</div>
+            <h2>
+              {s.pending.request.name} · {s.pending.request.path}
+            </h2>
+            <p>{s.pending.reason}</p>
+            <Badge value={s.pending.risk} />
+            <pre>{s.pending.diff}</pre>
+            {user.role !== "VIEWER" ? (
+              <div className="run-actions">
+                <button
+                  className="primary"
+                  onClick={() =>
+                    action("/approval", {
+                      approvalId: s.pending.id,
+                      approved: true,
+                    })
+                  }
+                >
+                  <Check size={16} />
+                  Approve exact action
+                </button>
+                <button
+                  onClick={() =>
+                    action("/approval", {
+                      approvalId: s.pending.id,
+                      approved: false,
+                    })
+                  }
+                >
+                  Reject
+                </button>
+              </div>
+            ) : (
+              <p className="muted">
+                Your role can view this request but cannot approve or reject it.
+              </p>
+            )}
+          </section>
+        )}
       <section className="panel">
         <div className="section-head">
           <h2>Task graph</h2>
