@@ -24,6 +24,27 @@ Docker CLI access is privileged. This host-engine option is for trusted local wo
 Tests execute in a copied allowlisted snapshot with network disabled and resource limits. JVM/npm runners are not implemented. If no sandbox is available, the tool returns a controlled failure and no test success is claimed.
 
 ## Development
+For a native Windows PostgreSQL installation, put local settings in the ignored
+repository-root `.env.local`. Use `DATABASE_URL=jdbc:postgresql://127.0.0.1:5432/agentflow`,
+`DATABASE_USERNAME`, `DATABASE_PASSWORD`, and an `ENGINE_DATABASE_URL` pointing to
+the same database. Also provide the JWT/service secrets, absolute workspace root,
+service addresses, and `JAVA_HOME`. Spring reads this file when launched from the
+repository root or backend directory. It is separate from Docker's `.env`.
+
+Start each service in its own terminal from the repository root:
+
+```powershell
+.\scripts\start-local.ps1 -Service api
+.\scripts\start-local.ps1 -Service engine
+.\scripts\start-local.ps1 -Service frontend
+```
+
+Build the API first if its packaged JAR is missing or outdated. The script only
+starts the selected service; PostgreSQL runs independently as a Windows service.
+H2 remains confined to automated tests. Application data uses the configured
+persistent PostgreSQL database. Local Redis settings must match whether a Redis
+server is running; disabling Redis is for local development only.
+
 Use the existing Maven wrapper and Java 25. Python 3.14 and Node 24 were available on the inspected machine. Resolved Python dependencies are in requirements.lock and frontend dependencies in package-lock.json. No global runtime upgrade was performed.
 
 Tests use H2 only through test resources. `spring-boot:test-run` can launch a temporary API smoke environment with H2; it is not a supported production database. Pass a different server port if 8080 is occupied. Engine tests use temporary SQLite files. Production Compose uses PostgreSQL.
