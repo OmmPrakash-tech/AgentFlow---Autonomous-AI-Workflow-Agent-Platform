@@ -10,7 +10,7 @@ class Strict(BaseModel):
 class Task(Strict):
     id: str = Field(pattern=r"^[a-zA-Z0-9_-]{1,40}$")
     objective: str = Field(min_length=1, max_length=1000)
-    agent: Agent
+    agent: str = Field(min_length=1, max_length=80)
     dependencies: list[str] = Field(default_factory=list, max_length=12)
     tools: list[Tool] = Field(default_factory=list, max_length=9)
     success_criteria: str = Field(min_length=1, max_length=1000)

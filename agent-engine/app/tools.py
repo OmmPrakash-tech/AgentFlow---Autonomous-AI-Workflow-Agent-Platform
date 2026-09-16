@@ -7,6 +7,8 @@ import re
 import subprocess
 import time
 import uuid
+import tempfile
+import shutil
 from .schemas import ToolRequest
 
 EXCLUDED = {".git", ".venv", "node_modules", "target", "dist", "__pycache__", ".idea"}
@@ -128,7 +130,7 @@ class Gateway:
             value = {"matches": rows, "note": "Heuristic evidence only; not a vulnerability verdict or dependency CVE scan"}
         elif request.name == "inspect_git_diff":
             # Git's external diff and textconv are disabled.
-            result = subprocess.run(["git","--no-pager","diff","--no-ext-diff","--no-textconv","--"],cwd=workspace,
+            result = subprocess.run(["git","-c","core.fsmonitor=false","--no-pager","diff","--no-ext-diff","--no-textconv","--",*self.files(workspace)],cwd=workspace,
                     capture_output=True,timeout=15,env={"PATH":os.environ.get("PATH",""),"SYSTEMROOT":os.environ.get("SYSTEMROOT",""),"GIT_CONFIG_NOSYSTEM":"1","GIT_CONFIG_GLOBAL":os.devnull})
             value = {"exit_code":result.returncode,"diff":redact(result.stdout.decode(errors="replace")[:20000])}
         elif request.name == "modify_file":
@@ -154,12 +156,22 @@ class Gateway:
     def tests(self, workspace):
         if os.getenv("SANDBOX_ENABLED","false").lower() != "true":
             raise PolicyError("SANDBOX_UNAVAILABLE: test execution requires the configured Docker sandbox")
+        # Export only allowlisted files: secrets and repository metadata are not mounted.
+        with tempfile.TemporaryDirectory(prefix="agentflow-sandbox-") as folder:
+            snapshot = Path(folder)
+            for file in self.files(workspace):
+                target = snapshot / file
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(self.path(workspace, file, file=True), target)
+            return self._container_tests(snapshot)
+
+    def _container_tests(self, workspace):
         name = "agentflow-test-"+uuid.uuid4().hex
         args = ["docker","run","--rm","--name",name,"--network","none","--read-only","--cap-drop","ALL",
                 "--security-opt","no-new-privileges","--pids-limit","64","--memory","256m","--cpus","1",
                 "--user","65534:65534","--mount",f"type=bind,source={workspace},target=/workspace,readonly",
                 "--tmpfs","/tmp:rw,noexec,nosuid,size=32m","-w","/workspace","-e","PYTHONDONTWRITEBYTECODE=1",
-                "python:3.14-slim","python","-I","-m","unittest","discover","-s","tests","-v"]
+                "python:3.14-slim","python","-m","unittest","discover","-s","tests","-v"]
         try:
             r = subprocess.run(args,capture_output=True,timeout=60)
             return {"exit_code":r.returncode,"stdout":redact(r.stdout.decode(errors="replace")[-12000:]),"stderr":redact(r.stderr.decode(errors="replace")[-12000:])}

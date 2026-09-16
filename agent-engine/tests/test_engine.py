@@ -138,3 +138,41 @@ def test_replanner_runs_and_terminates(setup):
     result=store.get(state["run_id"])
     assert result["status"]=="FAILED"
     assert result["replan_count"]==2
+
+def test_guided_order_is_enforced_without_llm_planning(setup):
+    _,state,store,gateway,_=setup
+    state["workflow"]={"agents":["REPOSITORY","REVIEWER"]}
+    store.save(state)
+    engine=Engine(store,gateway,Scripted([]))
+    planned=engine.plan(state)
+    assert [t["agent"] for t in planned["plan"]]==["REPOSITORY","REVIEWER"]
+    assert planned["plan"][1]["dependencies"]==["guided_0"]
+    assert planned["llm_calls"]==0
+
+def test_large_grammar_constraints_removed_but_validation_retained():
+    from app.llm import grammar_schema
+    schema=grammar_schema(AgentResponse.model_json_schema())
+    assert "maxLength" not in json.dumps(schema)
+    with pytest.raises(ValidationError):
+        AgentResponse(summary="x"*3001)
+
+def test_sandbox_snapshot_excludes_secrets(setup,monkeypatch):
+    workspace,_,_,gateway,_=setup
+    (workspace/".env").write_text("SECRET=do-not-mount")
+    monkeypatch.setenv("SANDBOX_ENABLED","true")
+    def inspect(snapshot):
+        assert not (snapshot/".env").exists()
+        assert (snapshot/"app.py").exists()
+        return {"exit_code":0}
+    monkeypatch.setattr(gateway,"_container_tests",inspect)
+    assert gateway.tests(workspace)["exit_code"]==0
+
+
+def test_incomplete_agent_cannot_be_rubber_stamped(setup):
+    _,state,store,gateway,_=setup
+    state['plan']=[dict(plan().tasks[0].model_dump(),status='RUNNING',summary='Need evidence')]
+    store.save(state)
+    engine=Engine(store,gateway,Scripted([Evaluation(accepted=True,summary='Unfounded approval')]))
+    evaluated=engine.evaluate(state)
+    assert evaluated['plan'][0]['status']=='FAILED'
+    assert evaluated['needs_replan']

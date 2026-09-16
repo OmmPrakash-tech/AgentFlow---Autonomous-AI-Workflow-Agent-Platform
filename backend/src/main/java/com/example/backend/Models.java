@@ -31,6 +31,7 @@ class Definition {
  @Id UUID id = UUID.randomUUID();
  @Column(nullable=false) String kind;
  @Column(nullable=false) String name;
+ UUID ownerId;
  @Column(columnDefinition="text",nullable=false) String configuration;
  boolean enabled = true;
  int revision = 1;
@@ -63,4 +64,7 @@ class ResetToken {
  @Column(nullable=false) UUID userId;
  Instant expiresAt;
  boolean used = false;
+ @Version long version;
 }
+@Entity @Table(name="workspace_guard")
+class WorkspaceGuard { @Id Integer id = 1; }

@@ -44,4 +44,17 @@ class PlatformSecurityTests {
  @Test void profilesNeverExposeHashes() throws Exception {
   mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+register())).andExpect(status().isOk()).andExpect(jsonPath("$.passwordHash").doesNotExist()).andExpect(jsonPath("$.role").value("DEVELOPER"));
  }
+ @Test void developerCanCreateWorkflowButCannotOverwriteSharedTemplate() throws Exception {
+  String token=register();
+  mvc.perform(post("/api/workflows").header("Authorization","Bearer "+token).contentType("application/json").content("{\"name\":\"Personal "+UUID.randomUUID()+"\",\"configuration\":{\"agents\":[\"REPOSITORY\",\"REVIEWER\"]},\"enabled\":true}")).andExpect(status().isOk());
+  mvc.perform(post("/api/workflows").header("Authorization","Bearer "+token).contentType("application/json").content("{\"name\":\"Security Audit\",\"configuration\":{\"agents\":[\"REPOSITORY\"]},\"enabled\":true}")).andExpect(status().isForbidden());
+ }
+ @Test void invalidWorkflowIsRejected() throws Exception {
+  mvc.perform(post("/api/workflows").header("Authorization","Bearer "+register()).contentType("application/json").content("{\"name\":\"Invalid\",\"configuration\":{\"agents\":[\"UNKNOWN\"]},\"enabled\":true}")).andExpect(status().isBadRequest());
+ }
+ @Test void wrongPasswordAndPrivilegeEscalationAreRejected() throws Exception {
+  String token=register();
+  mvc.perform(post("/api/auth/password").header("Authorization","Bearer "+token).contentType("application/json").content("{\"currentPassword\":\"wrong\",\"newPassword\":\"new-test-password-123\"}")).andExpect(status().isForbidden());
+  mvc.perform(get("/api/users").header("Authorization","Bearer "+token)).andExpect(status().isForbidden());
+ }
 }

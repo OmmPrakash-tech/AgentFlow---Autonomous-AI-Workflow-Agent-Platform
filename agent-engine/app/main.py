@@ -8,6 +8,7 @@ import threading
 import time
 from fastapi import FastAPI, Depends, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from .engine import Engine, initial
 from .llm import OllamaProvider
 from .schemas import Start, Decision
@@ -36,6 +37,11 @@ async def lifespan(app):
 
 app = FastAPI(title="AgentFlow internal agent engine", version="0.1.0", lifespan=lifespan,
               docs_url=None, redoc_url=None, openapi_url=None)
+
+@app.exception_handler(RequestValidationError)
+async def invalid(request, exc):
+    return JSONResponse({"timestamp":datetime.now(timezone.utc).isoformat(),"status":422,
+                         "code":"INVALID_INPUT","message":"Input does not match the service schema","path":request.url.path},status_code=422)
 
 def authorize(x_engine_key: str = Header(default="")):
     if not secret or not hmac.compare_digest(x_engine_key, secret):

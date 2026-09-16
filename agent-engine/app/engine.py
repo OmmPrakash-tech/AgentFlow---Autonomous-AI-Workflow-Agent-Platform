@@ -1,8 +1,9 @@
 import json
 import logging
 import time
+from pydantic import ValidationError
 from langgraph.graph import StateGraph, START, END
-from .schemas import Plan, AgentResponse, Evaluation, ToolRequest
+from .schemas import Plan, Task, AgentResponse, Evaluation, ToolRequest
 from .store import TERMINAL
 from .tools import PolicyError, redact
 
@@ -56,7 +57,8 @@ class Engine:
                 if attempt:
                     raise
                 s["retry_count"] += 1
-                context = {**context, "validation_feedback": "Previous response failed schema validation or transport. Return valid JSON matching the schema."}
+                feedback = str(e)[:1800] if isinstance(e, ValidationError) else type(e).__name__
+                context = {**context, "validation_feedback": "Correct the previous response: " + feedback}
         raise RuntimeError("unreachable")
 
     def validate_plan(self, s, plan):
@@ -71,6 +73,24 @@ class Engine:
     def plan(self, s):
         s["status"] = "PLANNING"
         self.event(s, "PLANNING_STARTED", s["objective"])
+        if s.get("workflow"):
+            names = s["workflow"].get("agents", [])
+            if not names or len(names) > 12:
+                raise PolicyError("INVALID_WORKFLOW")
+            by_name = {a["name"]: a for a in s["agents"]}
+            tasks = []
+            for index, name in enumerate(names):
+                if name not in by_name:
+                    raise PolicyError("WORKFLOW_AGENT_DISABLED")
+                tools = [t for t in by_name[name]["configuration"].get("available_tools", []) if t in s["tools"]]
+                if s["mode"] == "READ_ONLY":
+                    tools = [t for t in tools if t != "modify_file"]
+                tasks.append(Task(id=f"guided_{index}", objective=f"{name}: {s['objective']}"[:1000], agent=name,
+                    dependencies=[f"guided_{index-1}"] if index else [], tools=tools,
+                    success_criteria="Provide evidence-backed specialist conclusions for the objective", priority=index+1))
+            s["plan"] = self.validate_plan(s, Plan(tasks=tasks))
+            self.event(s, "PLAN_CREATED", f"Guided workflow: {len(tasks)} tasks")
+            return s
         plan = self.llm(s, Plan,
             "Decompose the objective into 3-6 ordered tasks. Each task selects only permitted tools from its agent. "
             "Inspect repository, gather targeted code/security/dependency evidence, then review and report. "
@@ -122,15 +142,21 @@ class Engine:
             else:
                 s["errors"].append("APPROVAL_REJECTED")
                 task["summary"] = "Requested action was rejected by a human."
+                task["status"] = "FAILED"
+                s["pending"] = None
+                self.event(s, "APPROVAL_REJECTED", task["id"])
+                raise PolicyError("APPROVAL_REJECTED")
             s["pending"] = None
         agent = next(a for a in s["agents"] if a["name"] == task["agent"])
         limit = min(4, max(1,int(agent["configuration"].get("max_iterations",4))))
         for _ in range(limit):
             task["attempts"] += 1
             response = self.llm(s, AgentResponse,
-                f"You are {task['agent']}. Use only the task's listed tools. Request evidence first; then complete with an evidence-backed summary. "
+                f"You are {task['agent']}. {agent['configuration'].get('system_instructions', '')[:4000]} Use only the task's listed tools. Request evidence first; then complete with an evidence-backed summary. "
                 "Use read_file before modify_file and copy its sha256 into expected_sha256. "
-                "Do not repeat identical tool calls. complete=true means the task's success criteria have been met.",
+                "Populate tool_requests with the tools you need: you are responsible for requesting execution, not the user. "
+                "Do not ask the user to provide tool evidence. Do not repeat identical tool calls. "
+                "After sufficient evidence return tool_requests=[] and complete=true. complete=true means the task's success criteria have been met.",
                 self.context(s, task))
             task["summary"] = response.summary
             evidence = {r["id"]:r for r in s["tool_results"] if r["status"]=="SUCCEEDED"}
@@ -162,7 +188,10 @@ class Engine:
             self.context(s, task))
         relevant = [r for r in s["tool_results"] if r["task_id"] == task["id"]]
         failed_tests = any(r["tool"]=="run_tests" and r["status"]=="FAILED" for r in relevant)
-        accepted = evaluation.accepted and not failed_tests
+        failed_tools = any(r["status"] == "FAILED" for r in relevant)
+        accepted = evaluation.accepted and task["status"] == "AWAITING_EVALUATION" and not failed_tests and not failed_tools
+        if task["agent"] in {"REPOSITORY", "SECURITY", "CODE_ANALYST", "TESTER"} and not relevant:
+            accepted = False
         task["status"] = "COMPLETED" if accepted else "FAILED"
         task["evaluation"] = evaluation.summary
         s["needs_replan"] = not accepted and s["replan_count"] < MAX_RETRIES
@@ -179,7 +208,9 @@ class Engine:
             "Produce a replacement plan for the unresolved work using the failure evidence. "
             "For failed tests: investigate with DEBUGGER, propose a minimal fix with DEVELOPER only in EDIT_MODE, "
             "then TESTER and REVIEWER. Use new task IDs. Do not repeat failed approaches. Remain within permissions.",
+            # Replacement tasks form their own topologically ordered DAG.
             {"objective":s["objective"],"mode":s["mode"],"agents":s["agents"],"enabled_tools":s["tools"],
+             "dependency_rule":"Dependencies must refer only to earlier tasks in your returned replacement plan, never to old plan IDs.",
              "UNTRUSTED_evidence":s["tool_results"][-6:],"previous_tasks":s["plan"][s["cursor"]:]})
         replacements = self.validate_plan(s, remaining)
         s["task_history"].extend(s["plan"][s["cursor"]:])
@@ -226,7 +257,8 @@ class Engine:
                 return
             latest["status"] = "FAILED"
             latest["errors"].append(type(e).__name__+": "+redact(str(e))[:300])
-            self.event(latest, "RUN_FAILED", type(e).__name__)
+            latest["verification"] = {"accepted":False,"summary":"Execution stopped: "+type(e).__name__,"edits_verified":False}
+            self.finalize(latest)
 
 def initial(request):
     return {**request.model_dump(), "status":"QUEUED","plan":[],"cursor":0,"findings":[],"tool_results":[],

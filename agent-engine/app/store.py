@@ -1,6 +1,6 @@
 import copy
 import threading
-from sqlalchemy import create_engine, MetaData, Table, Column, String, JSON, select, update
+from sqlalchemy import create_engine, MetaData, Table, Column, String, JSON, select, update, text
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
 
@@ -9,7 +9,11 @@ class Store:
     def __init__(self, url):
         self.engine = create_engine(url, pool_pre_ping=True)
         self.lock = threading.RLock()
-        meta = MetaData()
+        schema = "agent_engine" if self.engine.dialect.name == "postgresql" else None
+        if schema:
+            with self.engine.begin() as connection:
+                connection.execute(text("CREATE SCHEMA IF NOT EXISTS agent_engine"))
+        meta = MetaData(schema=schema)
         self.runs = Table("engine_runs", meta, Column("id", String(36), primary_key=True),
                           Column("state", JSON, nullable=False))
         meta.create_all(self.engine)

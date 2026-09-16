@@ -37,6 +37,7 @@ class RunController {
   payload.put("tools",definitions.findByKindOrderByName("TOOL").stream().filter(d->d.enabled).map(d->d.name).toList());
   if(input.workflowId()!=null) {
    var w=definitions.findById(input.workflowId()).orElseThrow(Access::denied); if(!w.kind.equals("WORKFLOW")||!w.enabled) throw Access.denied();
+   if(w.ownerId!=null) access.owns(a,w.ownerId);
    payload.put("workflow",json.readValue(w.configuration,Map.class));
   }
   runs.saveAndFlush(r); access.audit(a,"RUN_REQUESTED",r.id,r.mode);

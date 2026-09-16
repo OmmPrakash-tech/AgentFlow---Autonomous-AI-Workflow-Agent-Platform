@@ -15,3 +15,8 @@ interface Runs extends JpaRepository<Run,UUID> {
 }
 interface Audits extends JpaRepository<Audit,UUID> {}
 interface ResetTokens extends JpaRepository<ResetToken,String> {}
+interface WorkspaceGuards extends JpaRepository<WorkspaceGuard,Integer> {
+ @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+ @org.springframework.data.jpa.repository.Query("select g from WorkspaceGuard g where g.id=1")
+ WorkspaceGuard lockRoot();
+}
