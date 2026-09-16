@@ -1,0 +1,75 @@
+name: agentflow
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: agentflow
+      POSTGRES_USER: ${DATABASE_USERNAME:-agentflow}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USERNAME:-agentflow} -d agentflow"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+  agent-engine:
+    build: ./agent-engine
+    environment:
+      ENGINE_SECRET: ${ENGINE_SECRET:?Set ENGINE_SECRET}
+      ENGINE_DATABASE_URL: ${ENGINE_DATABASE_URL:?Set ENGINE_DATABASE_URL}
+      WORKSPACE_ROOT: /workspaces
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: qwen3:8b
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-180}
+      SANDBOX_ENABLED: "false"
+    volumes: ["${WORKSPACE_HOST_PATH:-./workspaces}:/workspaces"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 15s
+      retries: 10
+    restart: unless-stopped
+  api:
+    build: ./backend
+    environment:
+      DATABASE_URL: jdbc:postgresql://postgres:5432/agentflow
+      DATABASE_USERNAME: ${DATABASE_USERNAME:-agentflow}
+      DATABASE_PASSWORD: ${DATABASE_PASSWORD:?Set DATABASE_PASSWORD}
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      ENGINE_SECRET: ${ENGINE_SECRET:?Set ENGINE_SECRET}
+      AGENT_ENGINE_URL: http://agent-engine:8000
+      WORKSPACE_ROOT: /workspaces
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3000}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes: ["${WORKSPACE_HOST_PATH:-./workspaces}:/workspaces:ro"]
+    ports: ["127.0.0.1:8080:8080"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      agent-engine: {condition: service_healthy}
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    ports: ["127.0.0.1:3000:8080"]
+    depends_on: [api]
+    restart: unless-stopped
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [bundled-model]
+    volumes: [ollama-data:/root/.ollama]
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  ollama-data:
