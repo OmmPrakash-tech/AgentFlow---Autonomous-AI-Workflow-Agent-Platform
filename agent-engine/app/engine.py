@@ -27,7 +27,9 @@ class Engine:
 
     def event(self, s, kind, detail):
         s["events"].append({"id": len(s["events"])+1, "type": kind, "time": time.time(), "detail": redact(detail)[:1000]})
-        log.info(json.dumps({"service":"agent-engine","run_id":s["run_id"],"event":kind,"status":s["status"]}))
+        task = s["plan"][s["cursor"]] if s.get("plan") and s["cursor"] < len(s["plan"]) else {}
+        log.info(json.dumps({"timestamp":time.time(),"service":"agent-engine","run_id":s["run_id"],
+                             "task_id":task.get("id"),"agent":task.get("agent"),"event":kind,"status":s["status"]}))
         self.store.save(s)
 
     def guard(self, s):
@@ -161,6 +163,7 @@ class Engine:
                 f"You are {task['agent']}. {agent['configuration'].get('system_instructions', '')[:4000]} Use only the task's listed tools. Request evidence first; then complete with an evidence-backed summary. "
                 "Use read_file before modify_file and copy its sha256 into expected_sha256. "
                 "Populate tool_requests with the tools you need: you are responsible for requesting execution, not the user. "
+                "Work only on this task, not later tasks. If its success criteria are already supported by supplied evidence, stop requesting tools. "
                 "Do not ask the user to provide tool evidence. Do not repeat identical tool calls. "
                 "After sufficient evidence return tool_requests=[] and complete=true. complete=true means the task's success criteria have been met.",
                 self.context(s, task))
@@ -195,8 +198,17 @@ class Engine:
         relevant = [r for r in s["tool_results"] if r["task_id"] == task["id"]]
         failed_tests = any(r["tool"]=="run_tests" and r["status"]=="FAILED" for r in relevant)
         failed_tools = any(r["status"] == "FAILED" for r in relevant)
-        accepted = evaluation.accepted and task["status"] == "AWAITING_EVALUATION" and not failed_tests and not failed_tools
+        accepted = evaluation.accepted and not failed_tests and not failed_tools
         if task["agent"] in {"REPOSITORY", "SECURITY", "CODE_ANALYST", "TESTER"} and not relevant:
+            accepted = False
+        observed = {r["tool"] for r in relevant if r["status"] == "SUCCEEDED"}
+        if task["agent"] == "REPOSITORY" and "read_file" in task["tools"] and "read_file" not in observed:
+            accepted = False
+        if task["agent"] in {"SECURITY", "CODE_ANALYST"} and not observed.intersection({"read_file", "security_scan", "search_code", "inspect_dependencies"}):
+            accepted = False
+        if task["agent"] == "TESTER" and "run_tests" not in observed:
+            accepted = False
+        if task["agent"] in {"REVIEWER", "REPORTER"} and not s["tool_results"]:
             accepted = False
         task["status"] = "COMPLETED" if accepted else "FAILED"
         task["evaluation"] = evaluation.summary

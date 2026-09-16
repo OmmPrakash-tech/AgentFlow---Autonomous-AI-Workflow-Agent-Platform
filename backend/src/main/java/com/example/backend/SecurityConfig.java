@@ -26,7 +26,7 @@ class SecurityConfig {
   d.setJwtValidator(JwtValidators.createDefaultWithIssuer("agentflow")); return d;
  }
  @Bean JwtEncoder encoder(SecretKeySpec key) { return new NimbusJwtEncoder(new com.nimbusds.jose.jwk.source.ImmutableSecret<>(key)); }
- @Bean SecurityFilterChain security(HttpSecurity http,@Value("${agentflow.cors-origin}") String origin) throws Exception {
+ @Bean SecurityFilterChain security(HttpSecurity http,@Value("${agentflow.cors-origin}") String origin,tools.jackson.databind.ObjectMapper json) throws Exception {
   var cors=new CorsConfiguration(); cors.setAllowedOrigins(List.of(origin));
   cors.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
   cors.setAllowedHeaders(List.of("Authorization","Content-Type","Last-Event-ID"));
@@ -34,6 +34,13 @@ class SecurityConfig {
   return http.csrf(c->c.disable()).cors(c->c.configurationSource(source))
    .sessionManagement(s->s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
    .authorizeHttpRequests(a->a.requestMatchers("/api/auth/register","/api/auth/login","/api/auth/forgot-password","/api/auth/reset-password","/actuator/health").permitAll().anyRequest().authenticated())
-   .oauth2ResourceServer(o->o.jwt(j->{})).build();
+   .exceptionHandling(e->e.authenticationEntryPoint((r,s,error)->{
+    s.setStatus(401); s.setContentType("application/json"); s.getWriter().write(json.writeValueAsString(ApiErrors.body(401,"UNAUTHENTICATED","Authentication required",r.getRequestURI())));
+   }).accessDeniedHandler((r,s,error)->{
+    s.setStatus(403); s.setContentType("application/json"); s.getWriter().write(json.writeValueAsString(ApiErrors.body(403,"ACCESS_DENIED","Permission denied",r.getRequestURI())));
+   }))
+   .oauth2ResourceServer(o->o.jwt(j->{}).authenticationEntryPoint((r,s,error)->{
+    s.setStatus(401); s.setContentType("application/json"); s.getWriter().write(json.writeValueAsString(ApiErrors.body(401,"UNAUTHENTICATED","Invalid or expired token",r.getRequestURI())));
+   })).build();
  }
 }

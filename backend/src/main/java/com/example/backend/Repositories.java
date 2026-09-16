@@ -11,7 +11,9 @@ interface Definitions extends JpaRepository<Definition,UUID> {
 }
 interface Runs extends JpaRepository<Run,UUID> {
  Page<Run> findByOwnerId(UUID id, Pageable pageable);
- List<Run> findTop20ByStatusInOrderByCreatedAtAsc(Collection<String> statuses);
+ List<Run> findTop20ByStatusInOrderByUpdatedAtAsc(Collection<String> statuses);
+ Page<Run> findByStatus(String status, Pageable pageable);
+ Page<Run> findByOwnerIdAndStatus(UUID ownerId,String status,Pageable pageable);
 }
 interface Audits extends JpaRepository<Audit,UUID> {}
 interface ResetTokens extends JpaRepository<ResetToken,String> {}

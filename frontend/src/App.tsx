@@ -95,7 +95,8 @@ function useList(path: string) {
   return useQuery({
     queryKey: [path],
     queryFn: () => api(path),
-    refetchInterval: path === "/runs" ? 5000 : false,
+    refetchInterval:
+      path.startsWith("/runs") || path.startsWith("/approvals") ? 5000 : false,
   });
 }
 
@@ -200,10 +201,7 @@ function Auth({ onLogin }: { onLogin: (u: User) => void }) {
             ? "Create an account"
             : "Already have an account? Sign in"}
         </button>
-        <p className="muted">
-          Forgot your password? Request an administrator-assisted reset from
-          Security after recovery, or contact your administrator.
-        </p>
+        <AccountRecovery />
       </section>
     </main>
   );
@@ -586,7 +584,8 @@ function Projects() {
   );
 }
 function Runs() {
-  const q = useList("/runs"),
+  const [page, setPage] = useState(0);
+  const q = useList("/runs?page=" + page),
     projects = useList("/projects"),
     workflows = useList("/workflows"),
     navigate = useNavigate();
@@ -671,6 +670,7 @@ function Runs() {
           <h2>Execution history</h2>
         </div>
         <RunTable rows={q.data?.content || []} />
+        <Pager page={page} total={q.data?.totalPages || 1} onChange={setPage} />
       </section>
     </>
   );
@@ -879,10 +879,9 @@ function RunDetail() {
   );
 }
 function Approvals() {
-  const q = useList("/runs");
-  const rows = (q.data?.content || []).filter(
-    (r: any) => r.status === "WAITING_APPROVAL",
-  );
+  const [page, setPage] = useState(0);
+  const q = useList("/approvals?page=" + page);
+  const rows = q.data?.content || [];
   return (
     <>
       <Heading eyebrow="HUMAN OVERSIGHT" title="Approval center.">
@@ -892,10 +891,9 @@ function Approvals() {
       <section className="panel">
         <RunTable rows={rows} />
         {!rows.length && (
-          <p className="padded muted">
-            No pending approvals in the latest 25 runs.
-          </p>
+          <p className="padded muted">No pending approvals on this page.</p>
         )}
+        <Pager page={page} total={q.data?.totalPages || 1} onChange={setPage} />
       </section>
     </>
   );
@@ -1225,4 +1223,99 @@ function WorkflowBuilder() {
       </form>
     </section>
   );
+}
+
+function AccountRecovery() {
+  const [tokenMode, setTokenMode] = useState(false);
+  const [error, setError] = useState(""),
+    [message, setMessage] = useState("");
+  async function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
+    setMessage("");
+    const input = Object.fromEntries(new FormData(e.currentTarget));
+    try {
+      const result = await api(
+        tokenMode ? "/auth/reset-password" : "/auth/forgot-password",
+        input,
+      );
+      setMessage(
+        result.message || "Password changed. Sign in with your new password.",
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  return (
+    <details>
+      <summary>Recover your account</summary>
+      <p>Recovery uses a one-time token delivered by your administrator.</p>
+      <form onSubmit={submit}>
+        {tokenMode ? (
+          <>
+            <label>
+              Reset token
+              <input name="token" required autoComplete="off" />
+            </label>
+            <label>
+              New password
+              <input
+                name="password"
+                type="password"
+                minLength={12}
+                maxLength={72}
+                required
+                autoComplete="new-password"
+              />
+            </label>
+          </>
+        ) : (
+          <label>
+            Account email
+            <input name="email" type="email" required autoComplete="email" />
+          </label>
+        )}
+        <ErrorBox error={error} />
+        {message && <p role="status">{message}</p>}
+        <button type="submit">
+          {tokenMode ? "Reset password" : "Request recovery"}
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            setTokenMode(!tokenMode);
+            setError("");
+            setMessage("");
+          }}
+        >
+          {tokenMode ? "Request a token" : "I have a reset token"}
+        </button>
+      </form>
+    </details>
+  );
+}
+
+function Pager({
+  page,
+  total,
+  onChange,
+}: {
+  page: number;
+  total: number;
+  onChange: (page: number) => void;
+}) {
+  return total > 1 ? (
+    <div className="padded run-actions">
+      <button disabled={page === 0} onClick={() => onChange(page - 1)}>
+        Previous
+      </button>
+      <span className="muted">
+        Page {page + 1} of {total}
+      </span>
+      <button disabled={page + 1 >= total} onClick={() => onChange(page + 1)}>
+        Next
+      </button>
+    </div>
+  ) : null;
 }

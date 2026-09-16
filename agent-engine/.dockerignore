@@ -3,5 +3,5 @@ __pycache__
 .pytest_cache
 work
 *.db
-.env
+.env*
 tests

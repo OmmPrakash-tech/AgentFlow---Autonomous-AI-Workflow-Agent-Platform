@@ -13,7 +13,7 @@ class RunSynchronizer {
  RunSynchronizer(Runs r,RunController c) { runs=r; controller=c; }
  @Scheduled(fixedDelay=5000)
  void sync() {
-  for(var r:runs.findTop20ByStatusInOrderByCreatedAtAsc(List.of("QUEUED","PLANNING","RUNNING","WAITING_APPROVAL","VERIFYING"))) {
+  for(var r:runs.findTop20ByStatusInOrderByUpdatedAtAsc(List.of("QUEUED","PLANNING","RUNNING","WAITING_APPROVAL","VERIFYING"))) {
    try { controller.sync(r); } catch(Exception ignored) { /* Preserve the last durable snapshot on transient failure. */ }
   }
  }

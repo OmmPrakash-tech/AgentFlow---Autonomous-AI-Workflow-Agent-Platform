@@ -28,6 +28,10 @@ class RunController {
   var a=access.user(auth); access.require(a,"READ"); return (a.role.equals("ADMIN")?runs.findAll(PlatformController.page(page)):runs.findByOwnerId(a.id,PlatformController.page(page))).map(this::dto);
  }
  @GetMapping("/runs/{id}") Object get(Authentication auth,@PathVariable UUID id) { return dto(sync(owned(auth,id,"READ"))); }
+ @GetMapping("/approvals") Object approvals(Authentication auth,@RequestParam(defaultValue="0") int page) {
+  var a=access.user(auth); access.require(a,"READ");
+  return (a.role.equals("ADMIN")?runs.findByStatus("WAITING_APPROVAL",PlatformController.page(page)):runs.findByOwnerIdAndStatus(a.id,"WAITING_APPROVAL",PlatformController.page(page))).map(this::dto);
+ }
  @PostMapping("/runs") Object start(Authentication auth,@Valid @RequestBody Start input) {
   var a=access.user(auth); access.require(a,input.mode().equals("EDIT_MODE")?"EDIT":"EXECUTE"); limits.check("runs:"+a.id,5);
   var p=projects.findById(input.projectId()).orElseThrow(Access::denied); access.owns(a,p.ownerId);

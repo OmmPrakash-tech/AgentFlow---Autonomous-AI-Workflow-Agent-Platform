@@ -15,7 +15,7 @@ from .schemas import Start, Decision
 from .store import Store, TERMINAL
 from .tools import Gateway
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(message)s")
 secret = os.getenv("ENGINE_SECRET", "")
 store = None
 engine = None
