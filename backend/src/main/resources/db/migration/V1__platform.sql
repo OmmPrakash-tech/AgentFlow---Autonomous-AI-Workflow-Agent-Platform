@@ -1,0 +1,10 @@
+create table app_users (id uuid primary key, email varchar(254) not null unique, password_hash varchar(255) not null, role varchar(255) not null, enabled boolean not null, force_reset boolean not null, token_version integer not null, created_at timestamptz);
+create table projects (id uuid primary key, owner_id uuid not null references app_users(id), name varchar(255) not null, description varchar(2000), workspace_path varchar(255) not null, type varchar(255), created_at timestamptz);
+create index projects_owner on projects(owner_id);
+create table definitions (id uuid primary key, kind varchar(255) not null, name varchar(255) not null, configuration text not null, enabled boolean not null, revision integer not null, unique(kind,name));
+create table agent_runs (id uuid primary key, project_id uuid not null references projects(id), owner_id uuid not null references app_users(id), objective varchar(4000) not null, status varchar(255), mode varchar(255), snapshot text, created_at timestamptz, updated_at timestamptz, version bigint not null);
+create index runs_owner_time on agent_runs(owner_id,created_at desc);
+create index runs_status on agent_runs(status);
+create table audit_logs (id uuid primary key, actor_id uuid references app_users(id), action varchar(255) not null, resource varchar(255), detail varchar(2000), created_at timestamptz);
+create index audit_time on audit_logs(created_at desc);
+create table reset_tokens (digest varchar(255) primary key, user_id uuid not null references app_users(id), expires_at timestamptz, used boolean not null);
