@@ -19,7 +19,7 @@ class PlatformSecurityTests {
  @Autowired ObjectMapper json;
  @Autowired Accounts accounts;
  MockMvc mvc;
- @BeforeEach void setup() throws Exception { mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build(); Files.createDirectories(Path.of("target/test-workspaces/sample")); }
+ @BeforeEach void setup() throws Exception { mvc=MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).addFilters(context.getBean(RequestBoundary.class)).build(); Files.createDirectories(Path.of("target/test-workspaces/sample")); }
  String register() throws Exception {
   String email=UUID.randomUUID()+"@example.test";
   var r=mvc.perform(post("/api/auth/register").contentType("application/json").content(json.writeValueAsString(Map.of("email",email,"password","test-password-12345")))).andExpect(status().isOk()).andReturn();
@@ -35,7 +35,9 @@ class PlatformSecurityTests {
  }
  @Test void projectOwnerIsolation() throws Exception {
   String a=register(),b=register();
-  mvc.perform(post("/api/projects").header("Authorization","Bearer "+a).contentType("application/json").content("{\"name\":\"sample\",\"workspacePath\":\"sample\"}")).andExpect(status().isOk());
+  String path=UUID.randomUUID().toString(); Files.createDirectories(Path.of("target/test-workspaces",path));
+  mvc.perform(post("/api/projects").header("Authorization","Bearer "+a).contentType("application/json").content("{\"name\":\"sample\",\"workspacePath\":\""+path+"\"}")).andExpect(status().isOk());
+  mvc.perform(post("/api/projects").header("Authorization","Bearer "+b).contentType("application/json").content("{\"name\":\"duplicate\",\"workspacePath\":\""+path+"\"}")).andExpect(status().isConflict());
   mvc.perform(get("/api/projects").header("Authorization","Bearer "+b)).andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(0));
  }
  @Test void rejectsWorkspaceEscape() throws Exception {
@@ -56,5 +58,8 @@ class PlatformSecurityTests {
   String token=register();
   mvc.perform(post("/api/auth/password").header("Authorization","Bearer "+token).contentType("application/json").content("{\"currentPassword\":\"wrong\",\"newPassword\":\"new-test-password-123\"}")).andExpect(status().isForbidden());
   mvc.perform(get("/api/users").header("Authorization","Bearer "+token)).andExpect(status().isForbidden());
+ }
+ @Test void oversizedRequestIsRejectedBeforeParsing() throws Exception {
+  mvc.perform(post("/api/auth/register").contentType("application/json").content("x".repeat(131073))).andExpect(status().isPayloadTooLarge());
  }
 }

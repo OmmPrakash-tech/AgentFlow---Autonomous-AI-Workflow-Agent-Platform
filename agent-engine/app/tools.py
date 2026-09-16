@@ -159,10 +159,12 @@ class Gateway:
         # Export only allowlisted files: secrets and repository metadata are not mounted.
         with tempfile.TemporaryDirectory(prefix="agentflow-sandbox-") as folder:
             snapshot = Path(folder)
+            snapshot.chmod(0o755)
             for file in self.files(workspace):
                 target = snapshot / file
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(self.path(workspace, file, file=True), target)
+                target.chmod(0o644)
             return self._container_tests(snapshot)
 
     def _container_tests(self, workspace):

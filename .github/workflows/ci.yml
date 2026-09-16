@@ -48,6 +48,14 @@ jobs:
         run: |
           python -m pip install -r requirements.lock
           python -m pytest -q
+      - name: Real isolated test execution and correction
+        working-directory: agent-engine
+        env:
+          RUN_SANDBOX_INTEGRATION: 'true'
+          SANDBOX_ENABLED: 'true'
+        run: |
+          docker pull python:3.14-slim
+          python -m pytest -q tests/test_sandbox_integration.py
       - uses: actions/setup-node@v4
         with:
           node-version: '24'

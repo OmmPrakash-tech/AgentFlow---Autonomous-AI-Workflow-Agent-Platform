@@ -109,6 +109,9 @@ class Engine:
 
     def execute(self, s, task, request, approval=None):
         self.guard(s)
+        if request.name == "list_files" and any(r["tool"] == "list_files" and r["task_id"] == task["id"] and r["status"] == "SUCCEEDED" for r in s["tool_results"]):
+            self.event(s, "EVIDENCE_REUSED", "Existing workspace inventory")
+            return
         s["tool_call_count"] += 1
         self.event(s, "TOOL_REQUESTED", request.name)
         try:
@@ -129,6 +132,9 @@ class Engine:
         task = s["plan"][s["cursor"]]
         task["status"] = "RUNNING"
         self.event(s, "AGENT_STARTED", task["agent"]+": "+task["objective"])
+        if not s["tool_results"] and "list_files" in task["tools"]:
+            # Ground file-name choices before the small local model requests reads.
+            self.execute(s, task, ToolRequest(name="list_files"))
         pending = s.get("pending")
         if pending:
             if pending["decision"] == "PENDING":

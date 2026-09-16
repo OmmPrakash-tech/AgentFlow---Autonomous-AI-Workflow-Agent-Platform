@@ -58,6 +58,14 @@ class OllamaProvider:
         permitted = context.get("task", {}).get("tools")
         if permitted and "ToolRequest" in output_schema.get("$defs", {}):
             output_schema["$defs"]["ToolRequest"]["properties"]["name"]["enum"] = permitted
+            known_paths = set()
+            for evidence in context.get("UNTRUSTED_evidence", []):
+                output = evidence.get("output", {})
+                known_paths.update(output.get("files", [])[:80])
+                if output.get("path"):
+                    known_paths.add(output["path"])
+            if known_paths:
+                output_schema["$defs"]["ToolRequest"]["properties"]["path"]["enum"] = [".", *sorted(known_paths)[:80]]
         payload = {
             "model": self.model, "stream": False, "think": False,
             "format": output_schema,
